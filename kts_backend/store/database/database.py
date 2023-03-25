@@ -27,7 +27,7 @@ class Database:
         self._db = db
         # echo=True,future=True
         self._engine = create_async_engine(
-            "postgresql+asyncpg://kts_user:kts_pass@localhost/KTS_db"
+            "postgresql+asyncpg://kts_user:kts_pass@localhost/MyGame"
         )
         print("CONNECTED to database successfully")
         self.session = sessionmaker(

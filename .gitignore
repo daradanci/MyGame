@@ -122,3 +122,4 @@ dmypy.json
 rpmtools
 local
 .DS_Store
+alembic/versions

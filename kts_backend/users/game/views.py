@@ -49,7 +49,37 @@ class GetGameInfoView( View):
                 ],
                 "amount_of_rounds": game_info.amount_of_rounds,
                 "questions": game_info.questions,
-                "rounds": game_info.rounds,
+                "rounds": [
+                    {
+                        "id": round.id,
+                        "number":round.number,
+                        "themes":[
+                            {
+                                "id":theme.id,
+                                "title":theme.title,
+                                "questions":[
+                                    {
+                                        "id":question.id,
+                                        "theme_id":question.theme_id,
+                                        "title":question.title,
+                                        "points":question.points,
+                                        "answers":[
+                                            {
+                                                "id":answer.id,
+                                                "question_id":answer.question_id,
+                                                "title":answer.title,
+                                            }
+                                            for answer in question.answers
+                                        ]
+                                    }
+                                    for question in theme.questions
+                                ]
+                            }
+                            for theme in round.themes
+                        ]
+                    }
+                    for round in game_info.rounds
+                ]
             }
         )
 

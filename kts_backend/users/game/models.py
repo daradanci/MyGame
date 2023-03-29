@@ -79,12 +79,12 @@ class Game(db):
     chat_id = Column(Integer, nullable=False)
     started_at = Column(DateTime, default=datetime.datetime.now, nullable=False)
     finished_at = Column(DateTime)
-    amount_of_rounds = Column(Integer, default=0)
+    amount_of_rounds = Column(Integer, default=1)
     status = Column(String, default=GS.REGISTRATION.value)
     player_answering=Column(BigInteger, default=0)
 
-    players = relationship("PlayerGameScore", backref="game")
-    rounds = relationship("Round", backref="game")
+    players = relationship("PlayerGameScore", backref="game", lazy="subquery")
+    rounds = relationship("Round", backref="game", lazy="subquery")
     questions = Column(ARRAY(Integer),default=[])
 
 
@@ -95,7 +95,7 @@ class Player(db):
     name = Column(String, nullable=False)
     last_name = Column(String, nullable=False)
     win_counts=Column(Integer, default=0)
-    score = relationship("PlayerGameScore", backref="player")
+    score = relationship("PlayerGameScore", backref="player",lazy="subquery")
 
 
 class PlayerGameScore(db):
@@ -125,7 +125,7 @@ class Round(db):
     )
     number = Column(Integer, default=0)
 
-    themes = relationship("ThemeSet", backref="round", cascade="all, delete")
+    themes = relationship("ThemeSet", backref="round", cascade="all, delete", lazy="subquery")
 
 
 class ThemeSet(db):
@@ -137,6 +137,7 @@ class ThemeSet(db):
     theme_id = Column(
         Integer, ForeignKey("theme.id", ondelete="CASCADE"), nullable=False
     )
+    theme = relationship("Theme", back_populates="sets", lazy="subquery")
 
 
 class Theme(db):
@@ -144,8 +145,8 @@ class Theme(db):
     id = Column(Integer, primary_key=True, index=True, unique=True)
     title = Column(String, nullable=False, unique=True)
 
-    questions = relationship("Question", backref="theme", cascade="all, delete")
-    sets = relationship("ThemeSet", backref="theme", cascade="all, delete")
+    questions = relationship("Question", backref="theme", cascade="all, delete",lazy="subquery")
+    sets = relationship("ThemeSet", back_populates="theme", cascade="all, delete",lazy="subquery")
 
 
 class Question(db):

@@ -80,9 +80,9 @@ class BotManager:
                     )
                 )
             elif update.object.body == '/start_game':
-                # game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
-                #
-                # await self.app.store.game.update_game(id=game_info.id, status=GS.STARTED.value)
+                game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+
+                await self.app.store.game.update_game(id=game_info.id, status=GS.STARTED.value)
                 await self.app.store.game.set_questions(chat_id=update.object.chat_id)
             else:
 

@@ -11,6 +11,7 @@ from kts_backend.store.database.database import Database
 from sqlalchemy import select, text, exc, delete, update, func
 from datetime import datetime
 
+
 class GameAccessor(BaseAccessor):
     async def start_game(self, chat_id: int, players) -> Optional[GameDC]:
         async with self.app.database.session() as session:
@@ -46,21 +47,21 @@ class GameAccessor(BaseAccessor):
     async def register_player(self, player, chat_id) -> Optional[PlayerDC]:
         try:
             new_player = await self.check_player(player)
-            new_game=await self.get_last_game(int(chat_id))
-            new_score=await self.bind_player(new_game=new_game, new_player=new_player)
+            new_game = await self.get_last_game(int(chat_id))
+            new_score = await self.bind_player(new_game=new_game, new_player=new_player)
         except IntegrityError as e:
             self.logger.error(e)
             return None
 
         return PlayerDC(
-                        tg_id=new_player.tg_id,
-                        name=new_player.name,
-                        last_name=new_player.last_name,
-                        username=new_player.username,
-                        win_counts=new_player.win_counts,
-                        score=[new_score],
+            tg_id=new_player.tg_id,
+            name=new_player.name,
+            last_name=new_player.last_name,
+            username=new_player.username,
+            win_counts=new_player.win_counts,
+            score=[new_score],
 
-                    )
+        )
 
     async def bind_player(self, new_game, new_player) -> Optional[PlayerGameScoreDC]:
         async with self.app.database.session() as session:
@@ -136,19 +137,41 @@ class GameAccessor(BaseAccessor):
                 )
                 for (game, score, player) in players_raw
             ]
-            rounds_raw = await session.execute(
-                select(Round, ThemeSet, Theme)
-                .join(ThemeSet, Round.id == ThemeSet.round_id)
-                .join(Theme, ThemeSet.theme_id == Theme.id)
-                .where(Round.game_id == last_game.id)
+            # rounds_raw = await session.execute(
+            #     select(Round, ThemeSet, Theme)
+            #     .join(ThemeSet, Round.id == ThemeSet.round_id)
+            #     .join(Theme, ThemeSet.theme_id == Theme.id)
+            #     .where(Round.game_id == last_game.id)
+            # )
+            # rounds = [
+            #     RoundDC(
+            #         id=round.id,
+            #         number=round.number,
+            #         themes=[ThemeDC(id=theme.id,title=theme.title, questions=[]) ]
+            #     )
+            #     for (round, theme_set, theme) in rounds_raw
+            # ]
+            result_raw = await session.execute(
+                select(Round).filter_by(game_id=last_game.id)
             )
-            rounds = [
-                RoundDC(
-                    id=round.id,
-                    number=round.number,
-                    themes=[]
-                )
-                for (round, theme_set, theme) in rounds_raw
+            result = [res._mapping["Round"] for res in result_raw]
+
+            rounds=[
+                RoundDC(id=round.id, number=round.number,
+                        themes=[
+                            ThemeDC(id=theme.theme.id, title=theme.theme.title,
+                                    questions=[
+                                        QuestionDC(id=question.id, theme_id=question.theme_id, title=question.title,
+                                                   points=question.points,
+                                                   answers=[
+                                                       AnswerDC(id=answer.id, title=answer.title, question_id=question.id)
+                                                       for answer in question.answers
+                                                   ])
+                                        for question in theme.theme.questions
+                                    ])
+                            for theme in round.themes
+                        ])
+                for round in result
             ]
             return GameDC(
                 id=int(last_game.id),
@@ -166,11 +189,11 @@ class GameAccessor(BaseAccessor):
             chat_id=chat_id, tg_id=tg_id
         )
 
-    async def update_game(self, id:int,
-                          chat_id: Optional[int]= None,
-                          started_at:Optional[datetime]= None, finished_at:Optional[datetime]= None,
-                          amount_of_rounds: Optional[int]= None,
-                          status: Optional[str]= None
+    async def update_game(self, id: int,
+                          chat_id: Optional[int] = None,
+                          started_at: Optional[datetime] = None, finished_at: Optional[datetime] = None,
+                          amount_of_rounds: Optional[int] = None,
+                          status: Optional[str] = None
                           ) -> Optional[GameDC]:
         async with self.app.database.session() as session:
             q = update(Game).where(Game.id == id)
@@ -190,32 +213,35 @@ class GameAccessor(BaseAccessor):
         return None
 
     async def set_questions(self, chat_id: int, ):
-        game_info=await self.get_last_game(chat_id=chat_id)
+        game_info = await self.get_last_game(chat_id=chat_id)
         self.logger.info(game_info)
-        theme_list=await self.app.store.quizzes.list_themes()
-        self.logger.info('################################')
-        # self.logger.info(random.randint(0, len(theme_list)))
-
+        theme_list = await self.app.store.quizzes.list_themes()
+        new_rounds = []
+        async with self.app.database.session() as session:
+            for r in range(1, game_info.amount_of_rounds + 1):
+                try:
+                    new_round = Round(game_id=game_info.id, number=r, )
+                    session.add(new_round)
+                    await session.commit()
+                    new_rounds.append(RoundDC(id=new_round.id, number=new_round.number, themes=[]))
+                except IntegrityError as e:
+                    self.logger.error(e)
+                    return None
+        self.logger.info('@@@@@@@@@@@@@@@@@@')
+        self.logger.info(new_rounds)
+        self.logger.info('@@@@@@@@@@@@@@@@@@')
 
         async with self.app.database.session() as session:
-            for r in range(1, game_info.amount_of_rounds+1):
-                new_round =Round(game_id=game_info.id, number=r,)
-                session.add(new_round)
-                random_themes=random.choices(theme_list, k=3)
-
-                session.add_all(
-                    [
-                        ThemeSet(round_id=new_round.id, theme_id=theme.id)
-                        for theme in random_themes
-                    ]
-                )
-
-                await session.commit()
-
-
-
-
-            pass
-        # return await self.app.store.tg_api.get_chat_info(
-        #     chat_id=chat_id, tg_id=tg_id
-        # )
+            for new_round in new_rounds:
+                random_themes = random.choices(theme_list, k=3)
+                try:
+                    session.add_all(
+                        [
+                            ThemeSet(round_id=new_round.id, theme_id=theme.id)
+                            for theme in random_themes
+                        ]
+                    )
+                    await session.commit()
+                except IntegrityError as e:
+                    self.logger.error(e)
+                    return None

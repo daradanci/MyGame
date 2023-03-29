@@ -44,6 +44,7 @@ class GameAccessor(BaseAccessor):
                 questions=[],
                 rounds=[],
                 status=new_game.status,
+                player_answering=new_game.player_answering,
             )
 
     async def register_player(self, player, chat_id) -> Optional[PlayerDC]:
@@ -72,7 +73,7 @@ class GameAccessor(BaseAccessor):
             )
             session.add(new_gamescore)
             await session.commit()
-            return PlayerGameScoreDC(points=new_gamescore.points)
+            return PlayerGameScoreDC(points=new_gamescore.points, correct_answers=new_gamescore.correct_answers, incorrect_answers=new_gamescore.incorrect_answers)
 
     async def check_player(self, new_player) -> Optional[PlayerDC]:
         async with self.app.database.session() as session:
@@ -135,24 +136,10 @@ class GameAccessor(BaseAccessor):
                     last_name=player.last_name,
                     username=player.username,
                     win_counts=player.win_counts,
-                    score=[PlayerGameScore(points=score.points)],
+                    score=[PlayerGameScore(points=score.points, correct_answers=score.correct_answers,  incorrect_answers=score.incorrect_answers)],
                 )
                 for (game, score, player) in players_raw
             ]
-            # rounds_raw = await session.execute(
-            #     select(Round, ThemeSet, Theme)
-            #     .join(ThemeSet, Round.id == ThemeSet.round_id)
-            #     .join(Theme, ThemeSet.theme_id == Theme.id)
-            #     .where(Round.game_id == last_game.id)
-            # )
-            # rounds = [
-            #     RoundDC(
-            #         id=round.id,
-            #         number=round.number,
-            #         themes=[ThemeDC(id=theme.id,title=theme.title, questions=[]) ]
-            #     )
-            #     for (round, theme_set, theme) in rounds_raw
-            # ]
             result_raw = await session.execute(
                 select(Round).filter_by(game_id=last_game.id)
             )
@@ -187,6 +174,7 @@ class GameAccessor(BaseAccessor):
                 current_round=int(last_game.current_round),
                 current_question=int(last_game.current_question),
                 rounds=rounds,
+                player_answering=int(last_game.player_answering),
             )
 
     async def get_chat_info(self, chat_id: int, tg_id: int):
@@ -197,8 +185,9 @@ class GameAccessor(BaseAccessor):
     async def update_game(self, id: int,
                           chat_id: Optional[int] = None,
                           started_at: Optional[datetime] = None, finished_at: Optional[datetime] = None,
-                          amount_of_rounds: Optional[int] = None, current_round: Optional[int] = None,
-                          status: Optional[str] = None
+                          amount_of_rounds: Optional[int] = None,
+                          current_round: Optional[int] = None, current_question: Optional[int] = None,
+                          status: Optional[str] = None, player_answering: Optional[int] = None,
                           ) -> Optional[GameDC]:
         async with self.app.database.session() as session:
             q = update(Game).where(Game.id == id)
@@ -212,8 +201,12 @@ class GameAccessor(BaseAccessor):
                 q = q.values(amount_of_rounds=amount_of_rounds)
             if current_round:
                 q = q.values(current_round=current_round)
+            if current_question:
+                q = q.values(current_question=current_question)
             if status:
                 q = q.values(status=status)
+            if player_answering:
+                q = q.values(player_answering=player_answering)
             q.execution_options(synchronize_session="fetch")
             await session.execute(q)
             await session.commit()
@@ -253,12 +246,12 @@ class GameAccessor(BaseAccessor):
                     self.logger.error(e)
                     return None
 
-    async def check_if_playing(self, game_id: int) -> Optional[PlayerDC]:
+    async def check_if_playing(self, game_id: int, tg_id:int) -> Optional[PlayerDC]:
         async with self.app.database.session() as session:
             res = await session.execute(
                 select(Player, PlayerGameScore)
                 .join(PlayerGameScore, Player.tg_id == PlayerGameScore.player_id)
-                .where(PlayerGameScore.game_id == game_id)
+                .filter(Player.tg_id==tg_id)
             )
             # result = res.scalars().first()
             players = [
@@ -268,9 +261,49 @@ class GameAccessor(BaseAccessor):
                     last_name=player.last_name,
                     username=player.username,
                     win_counts=player.win_counts,
-                    score=[PlayerGameScoreDC(points=score.points)],
+                    score=[PlayerGameScoreDC(points=score.points, correct_answers=score.correct_answers, incorrect_answers=score.incorrect_answers)],
                 )
                 for (player, score) in res
             ]
-
+            self.logger.info('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+            self.logger.info(players)
+            self.logger.info('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             return players[0] if len(players) > 0 else None
+
+    async def update_player(self, tg_id: int, username: Optional[str] = None, name:Optional[str] = None,
+                            last_name: Optional[str] = None, win_counts: Optional[int] = None,
+                            points: Optional[int] = None, correct_answers: Optional[int] = None,
+                            incorrect_answers: Optional[int] = None,
+                            ) -> None:
+        async with self.app.database.session() as session:
+            # q = update(Player).where(Player.tg_id==tg_id)
+            q = update(Player).where(Player.tg_id == int(tg_id))
+            q = q.values(tg_id=tg_id)
+
+            if username:
+                q = q.values(username=username)
+            if name:
+                q = q.values(name=name)
+            if last_name:
+                q = q.values(last_name=last_name)
+            if win_counts:
+                q = q.values(win_counts=win_counts)
+            q.execution_options(synchronize_session="fetch")
+            await session.execute(q)
+
+
+
+            qq = update(PlayerGameScore).where(PlayerGameScore.player_id==int(tg_id))
+            qq = qq.values(player_id=tg_id)
+            if points:
+                qq = qq.values(points=points)
+            if correct_answers:
+                qq = qq.values(correct_answers=correct_answers)
+            if incorrect_answers:
+                qq = qq.values(incorrect_answers=incorrect_answers)
+            qq.execution_options(synchronize_session="fetch")
+            await session.execute(qq)
+
+            await session.commit()
+
+

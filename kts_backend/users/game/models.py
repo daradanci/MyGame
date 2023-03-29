@@ -29,7 +29,7 @@ class GameDC:
     amount_of_rounds: Optional[int]
     current_round: Optional[int]
     current_question: Optional[int]
-
+    player_answering: Optional[int]
 
 @dataclass
 class PlayerDC:
@@ -44,6 +44,8 @@ class PlayerDC:
 @dataclass
 class PlayerGameScoreDC:
     points: Optional[int]
+    correct_answers: Optional[int]
+    incorrect_answers: Optional[int]
     # game: Optional['GameDC']
     # player: Optional['PlayerDC']
 @dataclass

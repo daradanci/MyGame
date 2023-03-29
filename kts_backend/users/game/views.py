@@ -43,12 +43,14 @@ class GetGameInfoView( View):
                         "last_name": player.last_name,
                         "username":player.username,
                         "win_counts":player.win_counts,
-                        "score": [score.points for score in player.score],
+                        "score": [{"points":score.points, "correct_answers":score.correct_answers,"incorrect_answers":score.incorrect_answers } for score in player.score],
                     }
                     for player in game_info.players
                 ],
+                "player_answering": game_info.player_answering,
                 "amount_of_rounds": game_info.amount_of_rounds,
                 "current_round": game_info.current_round,
+                "current_question": game_info.current_question,
                 "questions": game_info.questions,
                 "rounds": [
                     {

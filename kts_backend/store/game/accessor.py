@@ -38,7 +38,9 @@ class GameAccessor(BaseAccessor):
                 chat_id=new_game.chat_id,
                 players=new_players,
                 started_at=new_game.started_at,
-                amount_of_rounds=1,
+                amount_of_rounds=new_game.amount_of_rounds,
+                current_round=new_game.current_round,
+                current_question=new_game.current_question,
                 questions=[],
                 rounds=[],
                 status=new_game.status,
@@ -156,7 +158,7 @@ class GameAccessor(BaseAccessor):
             )
             result = [res._mapping["Round"] for res in result_raw]
 
-            rounds=[
+            rounds = [
                 RoundDC(id=round.id, number=round.number,
                         themes=[
                             ThemeDC(id=theme.theme.id, title=theme.theme.title,
@@ -164,7 +166,8 @@ class GameAccessor(BaseAccessor):
                                         QuestionDC(id=question.id, theme_id=question.theme_id, title=question.title,
                                                    points=question.points,
                                                    answers=[
-                                                       AnswerDC(id=answer.id, title=answer.title, question_id=question.id)
+                                                       AnswerDC(id=answer.id, title=answer.title,
+                                                                question_id=question.id)
                                                        for answer in question.answers
                                                    ])
                                         for question in theme.theme.questions
@@ -179,8 +182,10 @@ class GameAccessor(BaseAccessor):
                 chat_id=int(last_game.chat_id),
                 status=last_game.status,
                 players=players,
-                amount_of_rounds=int(last_game.amount_of_rounds),
                 questions=last_game.questions,
+                amount_of_rounds=int(last_game.amount_of_rounds),
+                current_round=int(last_game.current_round),
+                current_question=int(last_game.current_question),
                 rounds=rounds,
             )
 
@@ -192,7 +197,7 @@ class GameAccessor(BaseAccessor):
     async def update_game(self, id: int,
                           chat_id: Optional[int] = None,
                           started_at: Optional[datetime] = None, finished_at: Optional[datetime] = None,
-                          amount_of_rounds: Optional[int] = None,
+                          amount_of_rounds: Optional[int] = None, current_round: Optional[int] = None,
                           status: Optional[str] = None
                           ) -> Optional[GameDC]:
         async with self.app.database.session() as session:
@@ -205,6 +210,8 @@ class GameAccessor(BaseAccessor):
                 q = q.values(finished_at=finished_at)
             if amount_of_rounds:
                 q = q.values(amount_of_rounds=amount_of_rounds)
+            if current_round:
+                q = q.values(current_round=current_round)
             if status:
                 q = q.values(status=status)
             q.execution_options(synchronize_session="fetch")
@@ -245,3 +252,25 @@ class GameAccessor(BaseAccessor):
                 except IntegrityError as e:
                     self.logger.error(e)
                     return None
+
+    async def check_if_playing(self, game_id: int) -> Optional[PlayerDC]:
+        async with self.app.database.session() as session:
+            res = await session.execute(
+                select(Player, PlayerGameScore)
+                .join(PlayerGameScore, Player.tg_id == PlayerGameScore.player_id)
+                .where(PlayerGameScore.game_id == game_id)
+            )
+            # result = res.scalars().first()
+            players = [
+                PlayerDC(
+                    tg_id=player.tg_id,
+                    name=player.name,
+                    last_name=player.last_name,
+                    username=player.username,
+                    win_counts=player.win_counts,
+                    score=[PlayerGameScoreDC(points=score.points)],
+                )
+                for (player, score) in res
+            ]
+
+            return players[0] if len(players) > 0 else None

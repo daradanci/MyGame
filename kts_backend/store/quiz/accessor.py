@@ -120,6 +120,25 @@ class QuizAccessor(BaseAccessor):
                     for answer in question.answers
                 ],
             )
+    async def get_question_by_id(self, id: int) -> Optional[QuestionDC]:
+        async with self.app.database.session() as session:
+            res = await session.execute(
+                select(Question)
+                .join(Answer, Question.id == Answer.question_id)
+                .where(Question.id == id)
+            )
+            question = res.scalars().first()
+
+            return QuestionDC(
+                id=int(question.id),
+                title=question.title,
+                theme_id=question.theme_id,
+                points=question.points,
+                answers=[
+                    AnswerDC(title=answer.title, id=answer.id, question_id=answer.question_id)
+                    for answer in question.answers
+                ],
+            )
 
     async def list_questions(
             self, theme_id: Optional[int] = None

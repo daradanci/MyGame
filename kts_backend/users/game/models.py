@@ -27,6 +27,8 @@ class GameDC:
     rounds: Optional[list["RoundDC"]]
     questions: Optional[list[int]]
     amount_of_rounds: Optional[int]
+    current_round: Optional[int]
+    current_question: Optional[int]
 
 
 @dataclass
@@ -82,7 +84,8 @@ class Game(db):
     amount_of_rounds = Column(Integer, default=1)
     status = Column(String, default=GS.REGISTRATION.value)
     player_answering=Column(BigInteger, default=0)
-
+    current_round=Column(Integer, default=1)
+    current_question=Column(Integer, default=0)
     players = relationship("PlayerGameScore", backref="game", lazy="subquery")
     rounds = relationship("Round", backref="game", lazy="subquery")
     questions = Column(ARRAY(Integer),default=[])

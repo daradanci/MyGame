@@ -48,6 +48,7 @@ class GetGameInfoView( View):
                     for player in game_info.players
                 ],
                 "amount_of_rounds": game_info.amount_of_rounds,
+                "current_round": game_info.current_round,
                 "questions": game_info.questions,
                 "rounds": [
                     {
@@ -132,6 +133,7 @@ class StartGameView(AuthRequiredMixin, View):
                     for player in new_game.players
                 ],
                 "amount_of_rounds":new_game.amount_of_rounds,
+                "current_round":new_game.current_round,
                 "questions":new_game.questions,
                 "rounds": new_game.rounds,
             }

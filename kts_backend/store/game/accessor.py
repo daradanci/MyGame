@@ -251,7 +251,7 @@ class GameAccessor(BaseAccessor):
             res = await session.execute(
                 select(Player, PlayerGameScore)
                 .join(PlayerGameScore, Player.tg_id == PlayerGameScore.player_id)
-                .filter(Player.tg_id==tg_id)
+                .filter(Player.tg_id==tg_id, PlayerGameScore.game_id==game_id)
             )
             # result = res.scalars().first()
             players = [
@@ -265,12 +265,9 @@ class GameAccessor(BaseAccessor):
                 )
                 for (player, score) in res
             ]
-            self.logger.info('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-            self.logger.info(players)
-            self.logger.info('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
             return players[0] if len(players) > 0 else None
 
-    async def update_player(self, tg_id: int, username: Optional[str] = None, name:Optional[str] = None,
+    async def update_player(self, tg_id: int, game_id:Optional[int]=None,username: Optional[str] = None, name:Optional[str] = None,
                             last_name: Optional[str] = None, win_counts: Optional[int] = None,
                             points: Optional[int] = None, correct_answers: Optional[int] = None,
                             incorrect_answers: Optional[int] = None,
@@ -292,17 +289,17 @@ class GameAccessor(BaseAccessor):
             await session.execute(q)
 
 
-
-            qq = update(PlayerGameScore).where(PlayerGameScore.player_id==int(tg_id))
-            qq = qq.values(player_id=tg_id)
-            if points:
-                qq = qq.values(points=points)
-            if correct_answers:
-                qq = qq.values(correct_answers=correct_answers)
-            if incorrect_answers:
-                qq = qq.values(incorrect_answers=incorrect_answers)
-            qq.execution_options(synchronize_session="fetch")
-            await session.execute(qq)
+            if game_id:
+                qq = update(PlayerGameScore).where(PlayerGameScore.player_id==int(tg_id), PlayerGameScore.game_id==int(game_id))
+                qq = qq.values(player_id=tg_id)
+                if points:
+                    qq = qq.values(points=points)
+                if correct_answers:
+                    qq = qq.values(correct_answers=correct_answers)
+                if incorrect_answers:
+                    qq = qq.values(incorrect_answers=incorrect_answers)
+                qq.execution_options(synchronize_session="fetch")
+                await session.execute(qq)
 
             await session.commit()
 

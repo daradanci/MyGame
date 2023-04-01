@@ -27,22 +27,14 @@ class Database:
         self._db = db
         # echo=True,future=True
         self._engine = create_async_engine(
-            "postgresql+asyncpg://kts_user:kts_pass@localhost/KTS_db"
+            "postgresql+asyncpg://kts_user:kts_pass@localhost/MyGame"
         )
         print("CONNECTED to database successfully")
         self.session = sessionmaker(
             self._engine, expire_on_commit=False, class_=AsyncSession
         )
 
-        # with self.session as session:
 
-        # stmt=text("""insert into themes (title) values ('web7777')""")
-        # res=await self.session.execute(stmt)
-        # await self.session.commit()
-
-        # async with self._engine.connect() as conn:
-        #     await conn.execute(text("""insert into themes (title) values ('web37722')"""))
-        #     await conn.commit()
 
     async def disconnect(self, *_: list, **__: dict) -> None:
         # self.session.expunge_all()

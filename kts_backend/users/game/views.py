@@ -18,7 +18,7 @@ from kts_backend.web.utils import json_response
 from kts_backend.web.mixins import AuthRequiredMixin
 
 
-class GetGameInfoView(AuthRequiredMixin, View):
+class GetGameInfoView( View):
     @docs(
         tags=["web"],
         summary="Game info",
@@ -27,23 +27,62 @@ class GetGameInfoView(AuthRequiredMixin, View):
     @response_schema(OkResponseSchema)
     async def get(self):
         game_info = await self.store.game.get_last_game(
-            self.request.rel_url.query["chat_id"]
+            chat_id=self.request.rel_url.query["chat_id"]
         )
         print(game_info)
         return json_response(
             data={
                 "id": game_info.id,
                 "chat_id": game_info.chat_id,
-                "created_at": str(game_info.created_at),
+                "started_at": str(game_info.started_at),
+                "status":game_info.status,
                 "players": [
                     {
                         "tg_id": player.tg_id,
                         "name": player.name,
                         "last_name": player.last_name,
-                        "score": [score.points for score in player.score],
+                        "username":player.username,
+                        "win_counts":player.win_counts,
+                        "score": [{"points":score.points, "correct_answers":score.correct_answers,"incorrect_answers":score.incorrect_answers } for score in player.score],
                     }
                     for player in game_info.players
                 ],
+                "player_answering": game_info.player_answering,
+                "amount_of_rounds": game_info.amount_of_rounds,
+                "current_round": game_info.current_round,
+                "current_question": game_info.current_question,
+                "questions": game_info.questions,
+                "rounds": [
+                    {
+                        "id": round.id,
+                        "number":round.number,
+                        "themes":[
+                            {
+                                "id":theme.id,
+                                "title":theme.title,
+                                "questions":[
+                                    {
+                                        "id":question.id,
+                                        "theme_id":question.theme_id,
+                                        "title":question.title,
+                                        "points":question.points,
+                                        "answers":[
+                                            {
+                                                "id":answer.id,
+                                                "question_id":answer.question_id,
+                                                "title":answer.title,
+                                            }
+                                            for answer in question.answers
+                                        ]
+                                    }
+                                    for question in theme.questions
+                                ]
+                            }
+                            for theme in round.themes
+                        ]
+                    }
+                    for round in game_info.rounds
+                ]
             }
         )
 
@@ -82,15 +121,22 @@ class StartGameView(AuthRequiredMixin, View):
             data={
                 "id": new_game.id,
                 "chat_id": new_game.chat_id,
-                "created_at": str(new_game.created_at),
+                "started_at": str(new_game.started_at),
+                "status": new_game.status,
                 "players": [
                     {
                         "tg_id": player.tg_id,
                         "name": player.name,
                         "last_name": player.last_name,
+                        "username": player.username,
+                        "win_counts": player.win_counts,
                         "score": [score.points for score in player.score],
                     }
                     for player in new_game.players
                 ],
+                "amount_of_rounds":new_game.amount_of_rounds,
+                "current_round":new_game.current_round,
+                "questions":new_game.questions,
+                "rounds": new_game.rounds,
             }
         )

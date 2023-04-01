@@ -1,5 +1,9 @@
 from marshmallow import Schema, fields
+
+from kts_backend.users.quiz.schemes import QuestionSchema
 from kts_backend.web.schemes import OkResponseSchema
+
+
 
 
 class GameScoreSchema(Schema):
@@ -21,3 +25,7 @@ class GameSchema(Schema):
     created_at = fields.DateTime(required=False)
     chat_id = fields.Int(required=True)
     players = fields.Nested(PlayerSchema, many=True, required=True)
+    amount_of_rounds=fields.Int()
+    questions=fields.Nested(QuestionSchema, many=True)
+
+

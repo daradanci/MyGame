@@ -6,7 +6,7 @@ from aiohttp import TCPConnector
 from aiohttp.client import ClientSession
 
 from kts_backend.store.base.base_accessor import BaseAccessor
-from kts_backend.store.tg_api.dataclasses import Message, Update, UpdateObject
+from kts_backend.store.tg_api.dataclasses import Message, Update, UpdateObject, UserObject
 from kts_backend.store.tg_api.poller import Poller
 
 
@@ -67,20 +67,46 @@ class TgApiAccessor(BaseAccessor):
 
             for update in raw_updates:
                 self.logger.info(update)
-
-                if "my_chat_member" not in update:
+                if 'callback_query' in update:
                     updates.append(
                         Update(
                             update_id=update["update_id"],
                             object=UpdateObject(
-                                # message_id=update['message']['message_id'],
+                                message_id=update["callback_query"]["message"]["message_id"],
+                                chat_id=update["callback_query"]["message"]["chat"]["id"],
+                                user_id=update["callback_query"]["from"]["id"],
+                                body=update["callback_query"]["data"],
+                                user_info=UserObject(
+                                    user_id=update["callback_query"]["from"]["id"],
+                                    first_name=update["callback_query"]["from"]["first_name"],
+                                    last_name=update["callback_query"]["from"]["last_name"]
+                                    if "last_name" in update["callback_query"]["from"] else "",
+                                    username=update["callback_query"]["from"]["username"]
+                                    if "username" in update["callback_query"]["from"] else "",
+                                )
+
+                            ),
+                        )
+                    )
+                elif "my_chat_member" not in update:
+                    updates.append(
+                        Update(
+                            update_id=update["update_id"],
+                            object=UpdateObject(
+                                message_id=update["message"]["message_id"],
                                 chat_id=update["message"]["chat"]["id"],
                                 user_id=update["message"]["from"]["id"],
-                                # username=update['message']['from']['username'],
                                 body=update["message"]["text"]
                                 if "text" in update["message"]
                                 else "🧐",
-                                # body='1010010011',
+                                user_info=UserObject(
+                                    user_id=update["message"]["from"]["id"],
+                                    first_name=update["message"]["from"]["first_name"],
+                                    last_name=update["message"]["from"]["last_name"]
+                                    if "last_name" in update["message"]["from"] else "",
+                                    username=update["message"]["from"]["username"]
+                                    if "username" in update["message"]["from"] else "",
+                                )
                             ),
                         )
                     )
@@ -89,19 +115,45 @@ class TgApiAccessor(BaseAccessor):
 
             await self.app.store.bots_manager.handle_updates(updates)
 
-    async def send_message(self, message: Message) -> None:
+    async def send_message(self, message: Message, keyboard: dict = None, remove_keyboard: bool=False, entities: str=None) -> None:
+        params={
+            "chat_id": message.chat_id,
+            "text": message.text
+        }
+        if keyboard:
+            params['reply_markup']=keyboard
+        if remove_keyboard:
+            params['remove_keyboard']=True
+        if entities:
+            params['entities']=entities
+
         async with self.session.get(
             self._build_query(
                 API_PATH + f"bot{self.app.config.bot.token}/",
                 "sendMessage",
-                params={
-                    "chat_id": message.chat_id,
-                    "text": message.text,
-                },
+                params=params,
+
             )
         ) as resp:
             data = await resp.json()
             self.logger.info(data)
+
+    async def remove_keyboard(self, chat_id:int, message_id:int) -> None:
+        params = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reply_markup": "",
+        }
+        async with self.session.get(
+            self._build_query(
+                API_PATH + f"bot{self.app.config.bot.token}/",
+                "editMessageReplyMarkup",
+                params=params,
+            )
+        ) as resp:
+            data = await resp.json()
+            self.logger.info(data)
+
 
     async def get_chat_info(self, chat_id: int, tg_id: Optional[int]):
         if tg_id:
@@ -131,3 +183,7 @@ class TgApiAccessor(BaseAccessor):
                 data = await resp.json()
                 self.logger.info(data)
             return data
+
+
+
+

@@ -6,6 +6,7 @@ from kts_backend.users.quiz.views import (
     ThemeAddView,
     ThemeListView,
     TestView,
+    ThemeListAddView, QuestionListAddView
 )
 
 if typing.TYPE_CHECKING:
@@ -17,4 +18,8 @@ def setup_routes(app: "Application"):
     app.router.add_view("/quiz.list_themes", ThemeListView)
     app.router.add_view("/quiz.add_question", QuestionAddView)
     app.router.add_view("/quiz.list_questions", QuestionListView)
-    app.router.add_view("/quiz.test", TestView)
+    app.router.add_view("/quiz.add_themes", ThemeListAddView)
+    app.router.add_view("/quiz.add_questions", QuestionListAddView)
+
+    # app.router.add_view("/quiz.test", TestView)
+    pass

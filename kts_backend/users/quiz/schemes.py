@@ -9,34 +9,27 @@ class ThemeSchema(Schema):
 
 class AnswerSchema(Schema):
     title = fields.Str(required=True)
-    is_correct = fields.Bool(required=True)
 
 
 class QuestionSchema(Schema):
-    id = fields.Int(required=False)
-    title = fields.Str(required=True)
-    theme_id = fields.Int(required=True)
-    answers = fields.Nested(AnswerSchema, many=True, required=True)
+    id = fields.Int(attribute="id")
+    title = fields.Str(attribute="title")
+    theme_id = fields.Int(attribute="theme_id")
+    points = fields.Int(attribute="points")
+    answers = fields.Nested(AnswerSchema, many=True, attribute="answers")
 
-
-#
-# class QuestionSchema(Schema):
-#     id = fields.Int(required=False)
-#     title = fields.Str(required=True)
-#     answers=fields.Nested(AnswerSchema, many=True)
-#     theme_id = fields.Int(required=True)
 
 
 class ThemeListSchema(Schema):
     data = fields.Nested(ThemeSchema, many=True)
 
+class QuestionListSchema(Schema):
+    data = fields.Nested(QuestionSchema, many=True)
 
 class ThemeIdSchema(Schema):
     theme_id = fields.Int(required=False)
 
 
-class ListQuestionSchema(Schema):
-    questions = fields.Nested(QuestionSchema, many=True)
 
 
 class ThemeAddSchema(Schema):

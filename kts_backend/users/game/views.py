@@ -48,6 +48,7 @@ class GetGameInfoView( View):
                     for player in game_info.players
                 ],
                 "player_answering": game_info.player_answering,
+                "player_old": game_info.player_old,
                 "amount_of_rounds": game_info.amount_of_rounds,
                 "current_round": game_info.current_round,
                 "current_question": game_info.current_question,

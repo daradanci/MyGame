@@ -165,12 +165,8 @@ class QuizAccessor(BaseAccessor):
                 for question in result
             ]
     async def match_answer(self, given_answer:AnswerDC, correct_answers: list[AnswerDC]) -> bool:
-        self.logger.info('*******************')
-        self.logger.info(given_answer)
-        self.logger.info(correct_answers)
-        self.logger.info('*******************')
         for correct_answer in correct_answers:
-            if given_answer.title==correct_answer.title:
+            if given_answer.title.lower()==correct_answer.title.lower():
                 return True
         return False
     async def test(self):

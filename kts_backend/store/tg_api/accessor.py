@@ -54,7 +54,7 @@ class TgApiAccessor(BaseAccessor):
                 method="getUpdates",
                 params={
                     "offset": self.offset,
-                    "allowed_updates": ["message"],
+                    "allowed_updates": "messages",
                     "timeout": 30,
                 },
             )
@@ -67,6 +67,7 @@ class TgApiAccessor(BaseAccessor):
 
             for update in raw_updates:
                 self.logger.info(update)
+
                 if 'callback_query' in update:
                     updates.append(
                         Update(
@@ -88,7 +89,7 @@ class TgApiAccessor(BaseAccessor):
                             ),
                         )
                     )
-                elif "my_chat_member" not in update:
+                if "message" in update and 'callback_query' not in update:
                     updates.append(
                         Update(
                             update_id=update["update_id"],
@@ -110,15 +111,18 @@ class TgApiAccessor(BaseAccessor):
                             ),
                         )
                     )
+
+
             if updates:
                 self.offset = updates[-1].update_id + 1
 
             await self.app.store.bots_manager.handle_updates(updates)
 
-    async def send_message(self, message: Message, keyboard: dict = None, remove_keyboard: bool=False, entities: str=None) -> None:
+    async def send_message(self, message: Message, keyboard: dict = None, remove_keyboard: bool=False, entities: str=None) -> Optional[int]:
         params={
             "chat_id": message.chat_id,
-            "text": message.text
+            "text": message.text,
+            "parse_mode": "Markdown"
         }
         if keyboard:
             params['reply_markup']=keyboard
@@ -137,6 +141,7 @@ class TgApiAccessor(BaseAccessor):
         ) as resp:
             data = await resp.json()
             self.logger.info(data)
+            return int(data['result']['message_id']) if 'result' in data else None
 
     async def remove_keyboard(self, chat_id:int, message_id:int) -> None:
         params = {

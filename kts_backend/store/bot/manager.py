@@ -1,5 +1,6 @@
 import asyncio
 import json
+import operator
 import typing
 from logging import getLogger
 import random
@@ -18,9 +19,17 @@ class BotManager:
         self.bot = None
         self.logger = getLogger("handler")
 
+    async def start_timer(self, seconds, coroutine):
+        await asyncio.sleep(seconds)
+        await coroutine
+
     async def create_game(self, update: Update):
+        last_game = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+        if last_game is not None:
+            await self.app.store.game.update_game(id=last_game.id, status=GS.FINISHED.value),
+
         await self.app.store.game.start_game(chat_id=update.object.chat_id, players=[])
-        await self.app.store.tg_api.send_message(
+        message_id = await self.app.store.tg_api.send_message(
             Message(
                 chat_id=update.object.chat_id,
                 text='Начало новой игры.',
@@ -29,29 +38,39 @@ class BotManager:
                 {"text": "Присоединиться!", "callback_data": "/join_game"},
             ]]})
         )
+        timer = asyncio.create_task(self.start_timer(
+            seconds=10,
+            coroutine=
+            self.app.store.tg_api.remove_keyboard(
+                chat_id=update.object.chat_id,
+                message_id=message_id,
+            )))
+        # await timer
 
     async def join_game(self, update: Update):
         chat_info = await self.app.store.game.get_chat_info(chat_id=update.object.chat_id,
                                                             tg_id=update.object.user_id)
-        # await self.app.store.tg_api.remove_keyboard(chat_id=update.object.chat_id,
-        #                                             message_id=update.object.message_id)
 
+        game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+        if game_info.status != GS.REGISTRATION.value:
+            return None
         user_info = {
             'tg_id': chat_info['result']['user']['id'],
             'name': chat_info['result']['user']['first_name'],
             'last_name': chat_info['result']['user'].get('last_name', ''),
             'username': chat_info['result']['user'].get('username', '')
         }
+        await self.app.store.tg_api.send_message(
+            Message(
+                chat_id=update.object.chat_id,
+                text=f'Пользователь [{update.object.user_info.first_name}](tg://user?id={update.object.user_info.user_id}) вступил в игру.',
+            )
+        )
         await self.app.store.game.register_player(player=user_info, chat_id=update.object.chat_id)
 
     async def setup_game(self, update: Update):
         game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
-        if game_info.status!=GS.SETTING_ROUND:
-            await self.app.store.tg_api.send_message(
-                message=Message(
-                    chat_id=update.object.chat_id,
-                    text='Игра уже закончилась.',
-                ))
+        if game_info.status not in [GS.SETTING_ROUND.value, GS.REGISTRATION.value]:
             return None
         player = await self.app.store.game.check_if_playing(game_id=game_info.id,
                                                             tg_id=update.object.user_info.user_id)
@@ -72,6 +91,8 @@ class BotManager:
 
     async def setup_rounds(self, update: Update):
         game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+        if game_info.status != GS.SETTING_ROUND.value:
+            return None
         player = await self.app.store.game.check_if_playing(game_id=game_info.id,
                                                             tg_id=update.object.user_info.user_id)
         if player is None:
@@ -93,23 +114,29 @@ class BotManager:
     async def start_game(self, update: Update):
         game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
         if game_info.status in [GS.REGISTRATION.value, GS.SETTING_ROUND.value, GS.SETTING_QUESTIONS.value]:
-            await self.app.store.game.update_game(id=game_info.id, status=GS.STARTED.value)
-            await self.app.store.game.set_questions(chat_id=update.object.chat_id)
+            if len(game_info.players) > 0:
+                random_player = random.choices(game_info.players, k=1)[0]
+            else:
+                return None
+            await asyncio.gather(
+                self.app.store.game.update_game(id=game_info.id, status=GS.STARTED.value),
+                self.app.store.game.set_questions(chat_id=update.object.chat_id)
+            )
             game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
             rounds = game_info.rounds
-            random_player = random.choices(game_info.players, k=1)[0]
+
             await asyncio.gather(
                 self.print_questions(chat_id=update.object.chat_id, round=rounds[game_info.current_round - 1],
-                                     player_answering=random_player),
+                                     player_answering=random_player, excluded_questions=game_info.questions),
                 self.app.store.game.update_game(id=game_info.id, status=GS.PICKING_QUESTION.value,
-                                                player_answering=random_player.tg_id),
+                                                player_answering=random_player.tg_id, player_old=random_player.tg_id),
             )
         else:
             return None
 
     async def pick_question(self, update: Update):
         game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
-        # if game_info.player_answering != 0:
+
         if update.object.user_info.user_id != game_info.player_answering or game_info.status != GS.PICKING_QUESTION.value:
             return None
         player = await self.app.store.game.check_if_playing(game_id=game_info.id,
@@ -118,8 +145,13 @@ class BotManager:
             return None
 
         picked_question_id = int(update.object.body[len('/pick_question_'):])
+        if picked_question_id in game_info.questions:
+            return None
+
         question = await self.app.store.quizzes.get_question_by_id(picked_question_id)
-        await self.app.store.game.update_game(id=game_info.id, current_question=question.id)
+        new_questions = game_info.questions
+        new_questions.append(question.id)
+        await self.app.store.game.update_game(id=game_info.id, current_question=question.id, questions=new_questions)
 
         await self.app.store.tg_api.send_message(
             message=Message(
@@ -133,8 +165,9 @@ class BotManager:
 
     async def answer_question(self, update: Update):
         picked_question_id = int(update.object.body[len('/answer_question_'):])
-        # question = await self.app.store.quizzes.get_question_by_id(picked_question_id)
         game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+        if game_info.status != GS.PICKING_QUESTION.value:
+            return None
         player = await self.app.store.game.check_if_playing(game_id=game_info.id,
                                                             tg_id=update.object.user_info.user_id)
         if player is None:
@@ -145,7 +178,7 @@ class BotManager:
         await self.app.store.tg_api.send_message(
             message=Message(
                 chat_id=update.object.chat_id,
-                text=f'Отвечайте, {player.name}',
+                text=f'Отвечайте, [{player.name}](tg://user?id={player.tg_id})',
             )
         )
         await self.app.store.tg_api.remove_keyboard(chat_id=update.object.chat_id,
@@ -171,6 +204,8 @@ class BotManager:
     async def answer(self, update: Update):
 
         game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+        if game_info is None:
+            return None
         if game_info.status == GS.ANSWERING_QUESTION.value and game_info.player_answering:
             if update.object.user_info.user_id == game_info.player_answering:
                 question = await self.app.store.quizzes.get_question_by_id(game_info.current_question)
@@ -180,45 +215,69 @@ class BotManager:
                     if await self.app.store.quizzes.match_answer(
                             given_answer=AnswerDC(id=None, question_id=None, title=update.object.body),
                             correct_answers=question.answers):
-                        await self.app.store.tg_api.send_message(
-                            Message(
-                                chat_id=update.object.chat_id,
-                                text=f"Правильный ответ!%0A Игрок {player.name} получает {question.points} очков.",
-                            )
+                        await asyncio.gather(
+                            self.app.store.tg_api.send_message(
+                                Message(
+                                    chat_id=update.object.chat_id,
+                                    text=f"Правильный ответ!%0A Игрок [{player.name}](tg://user?id={player.tg_id}) получает {question.points} очков.",
+                                )
+                            ),
+                            self.app.store.game.update_player(
+                                game_id=game_info.id,
+                                tg_id=player.tg_id,
+                                correct_answers=player.score[0].correct_answers + 1,
+                                points=player.score[0].points + question.points),
+                            self.app.store.game.update_game(
+                                id=game_info.id, player_old=game_info.player_answering
+                            ),
                         )
 
-                        await self.app.store.game.update_player(game_id=game_info.id,
-                                                                tg_id=player.tg_id,
-                                                                correct_answers=player.score[
-                                                                                    0].correct_answers + 1,
-                                                                points=player.score[0].points + question.points)
-                        await self.app.store.game.update_game(
-                            id=game_info.id, player_answering=player.tg_id, status=GS.PICKING_QUESTION.value,
-                            current_question=0, )
                     else:
-                        await self.app.store.tg_api.send_message(
-                            Message(
-                                chat_id=update.object.chat_id,
-                                text=f"Неверно.%0AПравильный ответ: {question.answers[0].title}",
-                            )
+                        await asyncio.gather(
+                            self.app.store.tg_api.send_message(
+                                Message(
+                                    chat_id=update.object.chat_id,
+                                    text=f"Неверно.%0AПравильный ответ: {question.answers[0].title} %0A Игрок [{player.name}](tg://user?id={player.tg_id}) теряет {question.points} очков.",
+                                )
+                            ),
+                            self.app.store.game.update_player(
+                                game_id=game_info.id,
+                                tg_id=player.tg_id,
+                                incorrect_answers=player.score[0].incorrect_answers + 1,
+                                points=player.score[0].points - question.points),
+                            self.app.store.game.update_game(
+                                id=game_info.id, player_answering=game_info.player_old
+                            ),
                         )
+                    game_info=await self.app.store.game.get_last_game(chat_id=game_info.chat_id)
+                    answered_questions = game_info.questions
+                    if question.id not in answered_questions:
+                        answered_questions.append(question.id)
+                    player_info =(await self.app.store.game.get_chat_info(chat_id=game_info.chat_id, tg_id=game_info.player_answering))['result']['user']
+                    answering_player=PlayerDC(
+                        tg_id=player_info['id'],
+                        name=player_info['first_name'], last_name=player_info.get('last_name'),
+                        username=player_info.get('username'), win_counts=0, score=[])
 
-                    await asyncio.gather(
-                        self.app.store.game.update_player(
-                            game_id=game_info.id,
-                            tg_id=player.tg_id,
-                            incorrect_answers=player.score[0].incorrect_answers + 1, ),
-                        self.app.store.game.update_game(
-                            id=game_info.id, status=GS.PICKING_QUESTION.value, current_question=0, ))
 
+                    await self.app.store.game.update_game(
+                            id=game_info.id, status=GS.PICKING_QUESTION.value, current_question=0,
+                            questions=answered_questions
+                        )
                     await self.print_questions(chat_id=update.object.chat_id,
-                                               round=game_info.rounds[game_info.current_round - 1],
-                                               player_answering=player),
+                                             round=game_info.rounds[game_info.current_round - 1],
+                                             player_answering=answering_player,
+                                             excluded_questions=game_info.questions),
+
+                    await self.win(update)
 
     async def handle_updates(self, updates: list[Update]):
         for update in updates:
+
             if update.object.body == '/new_game':
                 await self.create_game(update)
+            elif update.object.body == '/scores':
+                await self.scores(update)
             elif update.object.body == '/join_game':
                 await self.join_game(update)
             elif update.object.body == '/game_settings':
@@ -231,59 +290,116 @@ class BotManager:
                 await self.pick_question(update)
             elif update.object.body.startswith('/answer_question_'):
                 await self.answer_question(update)
-            elif update.object.body=='/finish_game':
+            elif update.object.body == '/finish_game':
                 await self.finish_game(update)
-            elif update.object.body=='/scores':
-                await self.scores(update)
+
             else:
                 await self.answer(update)
 
+    async def win(self, update: Update):
 
+        game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+        if game_info is None:
+            return None
+        if game_info.player_answering != update.object.user_info.user_id \
+                or len(game_info.questions) == 0:
+            return None
+        questions_in_round = 0
+        for theme in game_info.rounds[game_info.current_round - 1].themes:
+            questions_in_round += len(theme.questions)
+        if len(game_info.questions) >= questions_in_round:
+            if game_info.current_round < len(game_info.rounds):
+                # next_round
+                self.logger.info('11111111111111111111111111111111111111111111111')
+                self.logger.info('NEXT ROUND!')
+                self.logger.info('11111111111111111111111111111111111111111111111')
+                await self.app.store.game.update_game(
+                    id=game_info.id, current_question=0, current_round=game_info.current_round + 1, questions=[])
+                game_info = await self.app.store.game.get_last_game(game_info.chat_id)
+                await self.print_scoreboard(game_info=game_info)
+                await asyncio.sleep(4)
+                player_info = (await self.app.store.game.get_chat_info(
+                    chat_id=game_info.chat_id, tg_id=game_info.player_answering))['result']['user']
+                answering_player = PlayerDC(
+                    tg_id=player_info['id'],
+                    name=player_info['first_name'], last_name=player_info.get('last_name'),
+                    username=player_info.get('username'), win_counts=0, score=[])
 
+                await self.print_questions(
+                    chat_id=game_info.chat_id,
+                    round=game_info.rounds[game_info.current_round-1],
+                    excluded_questions=[], player_answering=answering_player)
+            else:
+                # finish
+                winner = None
+                if len(game_info.players)>0:
+                    winner=game_info.players[0]
+                if len(game_info.players)>1 and winner is not None:
+                    if winner.score[0].points == game_info.players[1].score[0].points:
+                        winner=None
+                if winner.score[0].points<=0:
+                    winner=None
+                if winner:
+                    await self.app.store.tg_api.send_message(Message(
+                        chat_id=update.object.chat_id,
+                        text=f"👑Победитель: [{winner.name}](tg://user?id={winner.tg_id})👑"))
+                    await self.app.store.game.update_player(tg_id=winner.tg_id, win_counts=winner.win_counts+1)
+                    await self.finish_game(update)
+                else:
+                    await self.app.store.tg_api.send_message(Message(
+                        chat_id=update.object.chat_id,
+                        text=f"✨Победила дружба!✨"))
 
     # async def game_round(self, updates: list[Update]):
-    async def print_questions(self, chat_id: int, round: RoundDC, player_answering: PlayerDC):
+    async def print_questions(self, chat_id: int, round: RoundDC, player_answering: PlayerDC,
+                              excluded_questions: list[int]):
         messages = []
         # messages.append(
-        await    self.app.store.tg_api.send_message(
-                message=Message(
-                    chat_id=chat_id,
-                    text=f'Раунд {round.number}.%0AСписок вопросов',
-                )
+        await asyncio.sleep(4)
+
+        await self.app.store.tg_api.send_message(
+            message=Message(
+                chat_id=chat_id,
+                text=f'Раунд {round.number}.%0AСписок вопросов',
             )
+        )
         # )
+        await asyncio.sleep(1)
+
         for theme in round.themes:
             # messages.append(
-            await   self.app.store.tg_api.send_message(
-                    message=Message(
-                        chat_id=chat_id,
-                        text=theme.title,
-                    ),
-                    keyboard=json.dumps({'inline_keyboard': [[
-                        {"text": question.points, "callback_data": f"/pick_question_{question.id}"}
-                        for question in theme.questions
-                    ]]},
-                    ))
+            await asyncio.sleep(1)
+            await self.app.store.tg_api.send_message(
+                message=Message(
+                    chat_id=chat_id,
+                    text=theme.title,
+                ),
+                keyboard=json.dumps({'inline_keyboard': [[
+                    {"text": question.points, "callback_data": f"/pick_question_{question.id}"}
+                    for question in theme.questions
+                    if question.id not in excluded_questions
+                ]]},
+                ))
             await asyncio.sleep(1)
             # )
         # messages.append(
-        await    self.app.store.tg_api.send_message(
-                message=Message(
-                    chat_id=chat_id,
-                    text=f'Игрок {player_answering.name}, выбирайте вопрос.',
-                )
-            ),
+        await self.app.store.tg_api.send_message(
+            message=Message(
+                chat_id=chat_id,
+                text=f'Игрок [{player_answering.name}](tg://user?id={player_answering.tg_id}), выбирайте вопрос.',
+            )
+        ),
         # )
         # await asyncio.gather(*messages)
 
-
-    async def print_scoreboard(self, game_info:GameDC):
-        players_info=''
+    async def print_scoreboard(self, game_info: GameDC):
+        players_info = ''
         for player in game_info.players:
-            players_info+=f'%0A{player.name} : {player.score[0].points} {player.score[0].correct_answers} {player.score[0].incorrect_answers}'
+            players_info += f'%0A[{player.name}](tg://user?id={player.tg_id}) : {player.score[0].points} {player.score[0].correct_answers} {player.score[0].incorrect_answers}'
+
         await self.app.store.tg_api.send_message(
             Message(
                 chat_id=game_info.chat_id,
-                text=f"Текущие баллы."+players_info,
+                text=f"Таблица игровых баллов." + players_info,
             )
         )

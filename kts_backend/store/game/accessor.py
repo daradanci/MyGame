@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker, selectinload
 from kts_backend.store.base.base_accessor import BaseAccessor
 from kts_backend.users.game.models import *
 from kts_backend.store.database.database import Database
-from sqlalchemy import select, text, exc, delete, update, func
+from sqlalchemy import select, text, exc, delete, update, func, desc
 from datetime import datetime
 
 
@@ -45,6 +45,7 @@ class GameAccessor(BaseAccessor):
                 rounds=[],
                 status=new_game.status,
                 player_answering=new_game.player_answering,
+                player_old=new_game.player_old,
             )
 
     async def register_player(self, player, chat_id) -> Optional[PlayerDC]:
@@ -73,7 +74,8 @@ class GameAccessor(BaseAccessor):
             )
             session.add(new_gamescore)
             await session.commit()
-            return PlayerGameScoreDC(points=new_gamescore.points, correct_answers=new_gamescore.correct_answers, incorrect_answers=new_gamescore.incorrect_answers)
+            return PlayerGameScoreDC(points=new_gamescore.points, correct_answers=new_gamescore.correct_answers,
+                                     incorrect_answers=new_gamescore.incorrect_answers)
 
     async def check_player(self, new_player) -> Optional[PlayerDC]:
         async with self.app.database.session() as session:
@@ -107,7 +109,7 @@ class GameAccessor(BaseAccessor):
                 score=[],
             )
 
-    async def get_last_game(self, chat_id: int) -> Optional[GameDC]:
+    async def get_last_game(self, chat_id: int,) -> Optional[GameDC]:
         async with self.app.database.session() as session:
             result_raw = await session.execute(
                 select(Game)
@@ -119,15 +121,15 @@ class GameAccessor(BaseAccessor):
             if len(result) > 0:
                 last_game = result[-1]
             else:
-                raise HTTPNotFound(
-                    reason=f"There are no games in chat #{chat_id}"
-                )
+                self.logger.error(f"There are no games in chat #{chat_id}")
+                return None
             self.logger.info(last_game)
             players_raw = await session.execute(
                 select(Game, PlayerGameScore, Player)
                 .join(PlayerGameScore, Game.id == PlayerGameScore.game_id)
                 .join(Player, Player.tg_id == PlayerGameScore.player_id)
                 .where(Game.id == last_game.id)
+                .order_by(desc(PlayerGameScore.points))
             )
             players = [
                 PlayerDC(
@@ -136,7 +138,8 @@ class GameAccessor(BaseAccessor):
                     last_name=player.last_name,
                     username=player.username,
                     win_counts=player.win_counts,
-                    score=[PlayerGameScore(points=score.points, correct_answers=score.correct_answers,  incorrect_answers=score.incorrect_answers)],
+                    score=[PlayerGameScore(points=score.points, correct_answers=score.correct_answers,
+                                           incorrect_answers=score.incorrect_answers)],
                 )
                 for (game, score, player) in players_raw
             ]
@@ -175,6 +178,7 @@ class GameAccessor(BaseAccessor):
                 current_question=int(last_game.current_question),
                 rounds=rounds,
                 player_answering=int(last_game.player_answering),
+                player_old=int(last_game.player_old),
             )
 
     async def get_chat_info(self, chat_id: int, tg_id: int):
@@ -187,7 +191,9 @@ class GameAccessor(BaseAccessor):
                           started_at: Optional[datetime] = None, finished_at: Optional[datetime] = None,
                           amount_of_rounds: Optional[int] = None,
                           current_round: Optional[int] = None, current_question: Optional[int] = None,
-                          status: Optional[str] = None, player_answering: Optional[int] = None,
+                          status: Optional[str] = None,
+                          player_answering: Optional[int] = None, player_old: Optional[int] = None,
+                          questions: Optional[list[int]] = None,
                           ) -> Optional[GameDC]:
         async with self.app.database.session() as session:
             q = update(Game).where(Game.id == id)
@@ -207,6 +213,10 @@ class GameAccessor(BaseAccessor):
                 q = q.values(status=status)
             if player_answering:
                 q = q.values(player_answering=player_answering)
+            if player_old is not None:
+                q = q.values(player_old=player_old)
+            if questions is not None:
+                q = q.values(questions=questions)
             q.execution_options(synchronize_session="fetch")
             await session.execute(q)
             await session.commit()
@@ -227,13 +237,14 @@ class GameAccessor(BaseAccessor):
                 except IntegrityError as e:
                     self.logger.error(e)
                     return None
-        self.logger.info('@@@@@@@@@@@@@@@@@@')
-        self.logger.info(new_rounds)
-        self.logger.info('@@@@@@@@@@@@@@@@@@')
 
         async with self.app.database.session() as session:
             for new_round in new_rounds:
-                random_themes = random.choices(theme_list, k=3)
+                random_themes = []
+                while len(random_themes)<3:
+                    random_theme=random.choice(theme_list)
+                    if random_theme not in random_themes:
+                        random_themes.append(random_theme)
                 try:
                     session.add_all(
                         [
@@ -246,12 +257,12 @@ class GameAccessor(BaseAccessor):
                     self.logger.error(e)
                     return None
 
-    async def check_if_playing(self, game_id: int, tg_id:int) -> Optional[PlayerDC]:
+    async def check_if_playing(self, game_id: int, tg_id: int) -> Optional[PlayerDC]:
         async with self.app.database.session() as session:
             res = await session.execute(
                 select(Player, PlayerGameScore)
                 .join(PlayerGameScore, Player.tg_id == PlayerGameScore.player_id)
-                .filter(Player.tg_id==tg_id, PlayerGameScore.game_id==game_id)
+                .filter(Player.tg_id == tg_id, PlayerGameScore.game_id == game_id)
             )
             # result = res.scalars().first()
             players = [
@@ -261,13 +272,15 @@ class GameAccessor(BaseAccessor):
                     last_name=player.last_name,
                     username=player.username,
                     win_counts=player.win_counts,
-                    score=[PlayerGameScoreDC(points=score.points, correct_answers=score.correct_answers, incorrect_answers=score.incorrect_answers)],
+                    score=[PlayerGameScoreDC(points=score.points, correct_answers=score.correct_answers,
+                                             incorrect_answers=score.incorrect_answers)],
                 )
                 for (player, score) in res
             ]
             return players[0] if len(players) > 0 else None
 
-    async def update_player(self, tg_id: int, game_id:Optional[int]=None,username: Optional[str] = None, name:Optional[str] = None,
+    async def update_player(self, tg_id: int, game_id: Optional[int] = None, username: Optional[str] = None,
+                            name: Optional[str] = None,
                             last_name: Optional[str] = None, win_counts: Optional[int] = None,
                             points: Optional[int] = None, correct_answers: Optional[int] = None,
                             incorrect_answers: Optional[int] = None,
@@ -288,11 +301,11 @@ class GameAccessor(BaseAccessor):
             q.execution_options(synchronize_session="fetch")
             await session.execute(q)
 
-
             if game_id:
-                qq = update(PlayerGameScore).where(PlayerGameScore.player_id==int(tg_id), PlayerGameScore.game_id==int(game_id))
+                qq = update(PlayerGameScore).where(PlayerGameScore.player_id == int(tg_id),
+                                                   PlayerGameScore.game_id == int(game_id))
                 qq = qq.values(player_id=tg_id)
-                if points:
+                if points is not None:
                     qq = qq.values(points=points)
                 if correct_answers:
                     qq = qq.values(correct_answers=correct_answers)
@@ -303,4 +316,6 @@ class GameAccessor(BaseAccessor):
 
             await session.commit()
 
-
+    # async def select_winners(self, game_id: int) -> Optional[list[PlayerDC]]:
+    #     async with self.app.database.session() as session:
+    #

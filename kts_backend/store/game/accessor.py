@@ -38,6 +38,7 @@ class GameAccessor(BaseAccessor):
                 chat_id=new_game.chat_id,
                 players=new_players,
                 started_at=new_game.started_at,
+                finished_at=new_game.finished_at,
                 amount_of_rounds=new_game.amount_of_rounds,
                 current_round=new_game.current_round,
                 current_question=new_game.current_question,
@@ -109,19 +110,28 @@ class GameAccessor(BaseAccessor):
                 score=[],
             )
 
-    async def get_last_game(self, chat_id: int,) -> Optional[GameDC]:
+    async def get_last_game(self, chat_id: Optional[int]=None, game_id: Optional[int]=None,) -> Optional[GameDC]:
         async with self.app.database.session() as session:
-            result_raw = await session.execute(
-                select(Game)
-                .filter_by(chat_id=int(chat_id))
-                .order_by("started_at")
-            )
+            if game_id:
+                result_raw = await session.execute(
+                    select(Game)
+                    .filter_by(id=int(game_id))
+                )
+            if chat_id:
+                result_raw = await session.execute(
+                    select(Game)
+                    .filter_by(chat_id=int(chat_id))
+                    .order_by("started_at")
+                )
             result = [res._mapping["Game"] for res in result_raw]
 
             if len(result) > 0:
                 last_game = result[-1]
             else:
-                self.logger.error(f"There are no games in chat #{chat_id}")
+                if game_id:
+                    self.logger.error(f"There are no game #{game_id}")
+                if chat_id:
+                    self.logger.error(f"There are no games in chat #{chat_id}")
                 return None
             self.logger.info(last_game)
             players_raw = await session.execute(
@@ -169,6 +179,7 @@ class GameAccessor(BaseAccessor):
             return GameDC(
                 id=int(last_game.id),
                 started_at=last_game.started_at,
+                finished_at=last_game.finished_at,
                 chat_id=int(last_game.chat_id),
                 status=last_game.status,
                 players=players,
@@ -181,6 +192,36 @@ class GameAccessor(BaseAccessor):
                 player_old=int(last_game.player_old),
             )
 
+
+    async def get_game_list(self, page_size: Optional[int]=None, page: int=0) -> Optional[list[GameDC]]:
+        async with self.app.database.session() as session:
+            query=select(Game).order_by(Game.id)
+            if page and page_size:
+                query=query.offset(page*page_size)
+            elif page_size:
+                query=query.limit(page_size)
+            elif page:
+                query=query.offset(page)
+
+            result_raw = await session.execute(query)
+            result = [res._mapping["Game"] for res in result_raw]
+            return [GameDC(
+                id=int(game.id),
+                started_at=game.started_at,
+                finished_at=game.finished_at,
+                chat_id=int(game.chat_id),
+                status=game.status,
+                players=None,
+                questions=game.questions,
+                amount_of_rounds=int(game.amount_of_rounds) if game.amount_of_rounds is not None else 0,
+                current_round=int(game.current_round) if game.current_round is not None else 0,
+                current_question=int(game.current_question) if game.current_question is not None else 0,
+                rounds=None,
+                player_answering=int(game.player_answering) if game.player_answering is not None else 0,
+                player_old=int(game.player_old) if game.player_answering is not None else 0,
+            ) for game in result]
+
+
     async def get_chat_info(self, chat_id: int, tg_id: int):
         return await self.app.store.tg_api.get_chat_info(
             chat_id=chat_id, tg_id=tg_id
@@ -188,7 +229,7 @@ class GameAccessor(BaseAccessor):
 
     async def update_game(self, id: int,
                           chat_id: Optional[int] = None,
-                          started_at: Optional[datetime] = None, finished_at: Optional[datetime] = None,
+                          started_at: Optional[datetime] = None, finished_at: datetime = None,
                           amount_of_rounds: Optional[int] = None,
                           current_round: Optional[int] = None, current_question: Optional[int] = None,
                           status: Optional[str] = None,
@@ -207,7 +248,7 @@ class GameAccessor(BaseAccessor):
                 q = q.values(amount_of_rounds=amount_of_rounds)
             if current_round:
                 q = q.values(current_round=current_round)
-            if current_question:
+            if current_question is not None:
                 q = q.values(current_question=current_question)
             if status:
                 q = q.values(status=status)

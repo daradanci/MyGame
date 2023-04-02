@@ -11,7 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from kts_backend.store.database.sqlalchemy_base import db
-from typing import Optional
+from typing import Optional, Union
 import datetime
 from .enum_states import GameStatus as GS
 
@@ -20,7 +20,7 @@ from .enum_states import GameStatus as GS
 class GameDC:
     id: Optional[int]
     started_at: datetime
-    # finished_at: Optional[datetime]
+    finished_at: datetime
     chat_id: int
     status: Optional[str]
     players: Optional[list["PlayerDC"]]

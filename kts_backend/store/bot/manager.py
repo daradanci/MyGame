@@ -116,6 +116,8 @@ class BotManager:
 
     async def start_game(self, update: Update):
         game_info = await self.app.store.game.get_last_game(chat_id=update.object.chat_id)
+        if game_info is None:
+            return None
         if game_info.status in [GS.REGISTRATION.value, GS.SETTING_ROUND.value, GS.SETTING_QUESTIONS.value]:
             if len(game_info.players) > 0:
                 random_player = random.choices(game_info.players, k=1)[0]
@@ -357,7 +359,7 @@ class BotManager:
                     await self.app.store.tg_api.send_message(Message(
                         chat_id=update.object.chat_id,
                         text=f"✨Победила дружба!✨"))
-                await self.finish_game(update)
+                    await self.finish_game(update)
 
     # async def game_round(self, updates: list[Update]):
     async def print_questions(self, chat_id: int, round: RoundDC, player_answering: PlayerDC,

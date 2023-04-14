@@ -129,7 +129,7 @@ class GameAccessor(BaseAccessor):
                 last_game = result[-1]
             else:
                 if game_id:
-                    self.logger.error(f"There are no game #{game_id}")
+                    self.logger.error(f"There is no game #{game_id}")
                 if chat_id:
                     self.logger.error(f"There are no games in chat #{chat_id}")
                 return None
@@ -252,7 +252,7 @@ class GameAccessor(BaseAccessor):
                 q = q.values(current_question=current_question)
             if status:
                 q = q.values(status=status)
-            if player_answering:
+            if player_answering is not None:
                 q = q.values(player_answering=player_answering)
             if player_old is not None:
                 q = q.values(player_old=player_old)

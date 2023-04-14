@@ -60,10 +60,8 @@ class TgApiAccessor(BaseAccessor):
         ) as resp:
             data = await resp.json()
             self.logger.info(data)
-            # self.ts = data["ts"]
             raw_updates = data.get("result", [])
             updates = []
-            Flag = True if len(raw_updates) > 0 else False
 
             for update in raw_updates:
                 self.logger.info("!!!!!!!!!!!!!!!!!!!")

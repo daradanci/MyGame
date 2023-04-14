@@ -282,7 +282,7 @@ class GameAccessor(BaseAccessor):
         async with self.app.database.session() as session:
             for new_round in new_rounds:
                 random_themes = []
-                while len(random_themes)<1:
+                while len(random_themes)<2:
                     random_theme=random.choice(theme_list)
                     if random_theme not in random_themes:
                         random_themes.append(random_theme)

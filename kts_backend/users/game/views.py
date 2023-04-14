@@ -18,7 +18,7 @@ from kts_backend.web.utils import json_response
 from kts_backend.web.mixins import AuthRequiredMixin
 
 
-class GetGameInfoView( View):
+class GetGameInfoView(AuthRequiredMixin, View):
     @docs(
         tags=["web"],
         summary="Game info",

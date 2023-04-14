@@ -9,7 +9,6 @@ from kts_backend.store.base.base_accessor import BaseAccessor
 from kts_backend.store.tg_api.dataclasses import Message, Update, UpdateObject, UserObject
 from kts_backend.store.tg_api.poller import Poller
 
-
 if typing.TYPE_CHECKING:
     from kts_backend.web.app import Application
 
@@ -49,24 +48,31 @@ class TgApiAccessor(BaseAccessor):
 
     async def poll(self):
         async with self.session.get(
-            self._build_query(
-                host=API_PATH + f"bot{self.app.config.bot.token}/",
-                method="getUpdates",
-                params={
-                    "offset": self.offset,
-                    "allowed_updates": ["message"],
-                    "timeout": 30,
-                },
-            )
+                self._build_query(
+                    host=API_PATH + f"bot{self.app.config.bot.token}/",
+                    method="getUpdates",
+                    params={
+                        "offset": self.offset,
+                        "allowed_updates": "messages",
+                        "timeout": 30,
+                    },
+                )
         ) as resp:
             data = await resp.json()
             self.logger.info(data)
-            # self.ts = data["ts"]
             raw_updates = data.get("result", [])
             updates = []
 
             for update in raw_updates:
+                self.logger.info("!!!!!!!!!!!!!!!!!!!")
                 self.logger.info(update)
+                # self.logger.info()
+                self.logger.info('!!!!!!!!!!!!!!!!!!!')
+
+                if not update.get('message') and not update.get('callback_query'):
+                    self.offset = update['update_id'] + 1
+                    break
+
                 if 'callback_query' in update:
                     updates.append(
                         Update(
@@ -88,102 +94,101 @@ class TgApiAccessor(BaseAccessor):
                             ),
                         )
                     )
-                elif "my_chat_member" not in update:
-                    updates.append(
-                        Update(
-                            update_id=update["update_id"],
-                            object=UpdateObject(
-                                message_id=update["message"]["message_id"],
-                                chat_id=update["message"]["chat"]["id"],
-                                user_id=update["message"]["from"]["id"],
-                                body=update["message"]["text"]
-                                if "text" in update["message"]
-                                else "🧐",
-                                user_info=UserObject(
+                if "message" in update and 'callback_query' not in update:
+                        updates.append(
+                            Update(
+                                update_id=update["update_id"],
+                                object=UpdateObject(
+                                    message_id=update["message"]["message_id"],
+                                    chat_id=update["message"]["chat"]["id"],
                                     user_id=update["message"]["from"]["id"],
-                                    first_name=update["message"]["from"]["first_name"],
-                                    last_name=update["message"]["from"]["last_name"]
-                                    if "last_name" in update["message"]["from"] else "",
-                                    username=update["message"]["from"]["username"]
-                                    if "username" in update["message"]["from"] else "",
-                                )
-                            ),
+                                    body=update["message"]["text"]
+                                    if "text" in update["message"]
+                                    else "🧐",
+                                    user_info=UserObject(
+                                        user_id=update["message"]["from"]["id"],
+                                        first_name=update["message"]["from"]["first_name"],
+                                        last_name=update["message"]["from"]["last_name"]
+                                        if "last_name" in update["message"]["from"] else "",
+                                        username=update["message"]["from"]["username"]
+                                        if "username" in update["message"]["from"] else "",
+                                    )
+                                ),
+                            )
                         )
-                    )
+
             if updates:
                 self.offset = updates[-1].update_id + 1
 
             await self.app.store.bots_manager.handle_updates(updates)
 
-    async def send_message(self, message: Message, keyboard: dict = None, remove_keyboard: bool=False, entities: str=None) -> None:
-        params={
+    async def send_message(self, message: Message, keyboard: dict = None, remove_keyboard: bool = False,
+                           entities: str = None) -> Optional[int]:
+        params = {
             "chat_id": message.chat_id,
-            "text": message.text
+            "text": message.text,
+            "parse_mode": "Markdown"
         }
         if keyboard:
-            params['reply_markup']=keyboard
+            params['reply_markup'] = keyboard
         if remove_keyboard:
-            params['remove_keyboard']=True
+            params['remove_keyboard'] = True
         if entities:
-            params['entities']=entities
+            params['entities'] = entities
 
         async with self.session.get(
-            self._build_query(
-                API_PATH + f"bot{self.app.config.bot.token}/",
-                "sendMessage",
-                params=params,
+                self._build_query(
+                    API_PATH + f"bot{self.app.config.bot.token}/",
+                    "sendMessage",
+                    params=params,
 
-            )
+                )
         ) as resp:
             data = await resp.json()
             self.logger.info(data)
+            return int(data['result']['message_id']) if 'result' in data else None
 
-    async def remove_keyboard(self, chat_id:int, message_id:int) -> None:
+    async def remove_keyboard(self, chat_id: int, message_id: int) -> None:
         params = {
             "chat_id": chat_id,
             "message_id": message_id,
             "reply_markup": "",
         }
         async with self.session.get(
-            self._build_query(
-                API_PATH + f"bot{self.app.config.bot.token}/",
-                "editMessageReplyMarkup",
-                params=params,
-            )
+                self._build_query(
+                    API_PATH + f"bot{self.app.config.bot.token}/",
+                    "editMessageReplyMarkup",
+                    params=params,
+                )
         ) as resp:
             data = await resp.json()
             self.logger.info(data)
 
-
     async def get_chat_info(self, chat_id: int, tg_id: Optional[int]):
         if tg_id:
             async with self.session.get(
-                self._build_query(
-                    API_PATH + f"bot{self.app.config.bot.token}/",
-                    "getChatMember",
-                    params={
-                        "chat_id": chat_id,
-                        "user_id": tg_id,
-                    },
-                )
+                    self._build_query(
+                        API_PATH + f"bot{self.app.config.bot.token}/",
+                        "getChatMember",
+                        params={
+                            "chat_id": chat_id,
+                            "user_id": tg_id,
+                        },
+                    )
             ) as resp:
                 data = await resp.json()
                 self.logger.info(data)
             return data
         else:
             async with self.session.get(
-                self._build_query(
-                    API_PATH + f"bot{self.app.config.bot.token}/",
-                    "getChat",
-                    params={
-                        "chat_id": chat_id,
-                    },
-                )
+                    self._build_query(
+                        API_PATH + f"bot{self.app.config.bot.token}/",
+                        "getChat",
+                        params={
+                            "chat_id": chat_id,
+                        },
+                    )
             ) as resp:
                 data = await resp.json()
                 self.logger.info(data)
             return data
-
-
-
-

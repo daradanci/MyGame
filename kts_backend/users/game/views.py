@@ -18,36 +18,47 @@ from kts_backend.web.utils import json_response
 from kts_backend.web.mixins import AuthRequiredMixin
 
 
-class GetGameInfoView( View):
+class GetGameInfoView(AuthRequiredMixin, View):
     @docs(
         tags=["web"],
         summary="Game info",
-        description="Get last game info with chat_id",
+        description="Get last game info with chat_id or just game info with game_id",
     )
     @response_schema(OkResponseSchema)
     async def get(self):
-        game_info = await self.store.game.get_last_game(
-            chat_id=self.request.rel_url.query["chat_id"]
-        )
-        print(game_info)
+        if 'game_id' in self.request.rel_url.query:
+            game_info = await self.store.game.get_last_game(
+                game_id=self.request.rel_url.query["game_id"]
+            )
+        elif 'chat_id' in self.request.rel_url.query:
+            game_info = await self.store.game.get_last_game(
+                chat_id=self.request.rel_url.query["chat_id"]
+            )
+        else:
+            raise HTTPBadRequest
         return json_response(
             data={
                 "id": game_info.id,
                 "chat_id": game_info.chat_id,
                 "started_at": str(game_info.started_at),
-                "status":game_info.status,
+                'finished_at': str(game_info.finished_at) if game_info.finished_at is not None else '',
+                "status": game_info.status,
                 "players": [
                     {
                         "tg_id": player.tg_id,
                         "name": player.name,
                         "last_name": player.last_name,
-                        "username":player.username,
-                        "win_counts":player.win_counts,
-                        "score": [{"points":score.points, "correct_answers":score.correct_answers,"incorrect_answers":score.incorrect_answers } for score in player.score],
+                        "username": player.username,
+                        "win_counts": player.win_counts,
+                        "score": [{"points": score.points,
+                                   "correct_answers": score.correct_answers,
+                                   "incorrect_answers": score.incorrect_answers}
+                                  for score in player.score],
                     }
                     for player in game_info.players
                 ],
                 "player_answering": game_info.player_answering,
+                "player_old": game_info.player_old,
                 "amount_of_rounds": game_info.amount_of_rounds,
                 "current_round": game_info.current_round,
                 "current_question": game_info.current_question,
@@ -55,22 +66,22 @@ class GetGameInfoView( View):
                 "rounds": [
                     {
                         "id": round.id,
-                        "number":round.number,
-                        "themes":[
+                        "number": round.number,
+                        "themes": [
                             {
-                                "id":theme.id,
-                                "title":theme.title,
-                                "questions":[
+                                "id": theme.id,
+                                "title": theme.title,
+                                "questions": [
                                     {
-                                        "id":question.id,
-                                        "theme_id":question.theme_id,
-                                        "title":question.title,
-                                        "points":question.points,
-                                        "answers":[
+                                        "id": question.id,
+                                        "theme_id": question.theme_id,
+                                        "title": question.title,
+                                        "points": question.points,
+                                        "answers": [
                                             {
-                                                "id":answer.id,
-                                                "question_id":answer.question_id,
-                                                "title":answer.title,
+                                                "id": answer.id,
+                                                "question_id": answer.question_id,
+                                                "title": answer.title,
                                             }
                                             for answer in question.answers
                                         ]
@@ -84,6 +95,45 @@ class GetGameInfoView( View):
                     for round in game_info.rounds
                 ]
             }
+        )
+
+
+class GetGamesListView(AuthRequiredMixin,View):
+    @docs(
+        tags=["web"],
+        summary="Game list",
+        description="Get list of games with pagination",
+    )
+    @response_schema(OkResponseSchema)
+    async def get(self):
+        if 'page' in self.request.rel_url.query:
+            page = int(self.request.rel_url.query.get('page'))
+        else:
+            page = 0
+        if page > 0:
+            page -= 1
+        if 'page_size' in self.request.rel_url.query:
+            page_size = int(self.request.rel_url.query.get('page_size'))
+        else:
+            page_size = None
+
+        game_list = await self.store.game.get_game_list(page_size=page_size, page=page)
+
+        return json_response(
+            data={'games': [
+                {
+                    'id': game.id,
+                    'started_at': str(game.started_at),
+                    'finished_at': str(game.finished_at) if game.finished_at is not None else '',
+                    'chat_id': game.chat_id,
+                    'status': game.status,
+                    'amount_of_rounds': game.amount_of_rounds,
+                    'current_round': game.current_round,
+                    'current_question': game.current_question,
+                    'player_answering': game.player_answering
+                }
+                for game in game_list
+            ]}
         )
 
 
@@ -134,9 +184,9 @@ class StartGameView(AuthRequiredMixin, View):
                     }
                     for player in new_game.players
                 ],
-                "amount_of_rounds":new_game.amount_of_rounds,
-                "current_round":new_game.current_round,
-                "questions":new_game.questions,
+                "amount_of_rounds": new_game.amount_of_rounds,
+                "current_round": new_game.current_round,
+                "questions": new_game.questions,
                 "rounds": new_game.rounds,
             }
         )

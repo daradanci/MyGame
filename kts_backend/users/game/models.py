@@ -11,7 +11,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from kts_backend.store.database.sqlalchemy_base import db
-from typing import Optional
+from typing import Optional, Union
 import datetime
 from .enum_states import GameStatus as GS
 
@@ -20,7 +20,7 @@ from .enum_states import GameStatus as GS
 class GameDC:
     id: Optional[int]
     started_at: datetime
-    # finished_at: Optional[datetime]
+    finished_at: datetime
     chat_id: int
     status: Optional[str]
     players: Optional[list["PlayerDC"]]
@@ -29,6 +29,7 @@ class GameDC:
     amount_of_rounds: Optional[int]
     current_round: Optional[int]
     current_question: Optional[int]
+    player_old: Optional[int]
     player_answering: Optional[int]
 
 @dataclass
@@ -39,6 +40,14 @@ class PlayerDC:
     username: str
     win_counts:int
     score: Optional[list["PlayerGameScoreDC"]]
+
+    def __lt__(self, other):
+        return self.score[0].points < other.score[0].points
+    def __gt__(self, other):
+        return self.score[0].points > other.score[0].points
+    def __eq__(self, other):
+        return self.score[0].points == other.score[0].points
+
 
 
 @dataclass
@@ -80,12 +89,13 @@ class AnswerDC:
 class Game(db):
     __tablename__ = "game"
     id = Column(Integer, primary_key=True, index=True, unique=True)
-    chat_id = Column(Integer, nullable=False)
+    chat_id = Column(BigInteger, nullable=False)
     started_at = Column(DateTime, default=datetime.datetime.now, nullable=False)
     finished_at = Column(DateTime)
     amount_of_rounds = Column(Integer, default=1)
     status = Column(String, default=GS.REGISTRATION.value)
     player_answering=Column(BigInteger, default=0)
+    player_old=Column(BigInteger, default=0)
     current_round=Column(Integer, default=1)
     current_question=Column(Integer, default=0)
     players = relationship("PlayerGameScore", backref="game", lazy="subquery")

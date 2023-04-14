@@ -23,3 +23,4 @@ class Poller:
         while True:
             updates = await self.store.tg_api.poll()
             await self.store.bots_manager.handle_updates(updates)
+            pass
